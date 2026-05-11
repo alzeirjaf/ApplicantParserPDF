@@ -1,0 +1,1 @@
+we are using an applicant parser where from the applicant portal, the user would dowloand an papplicants application and parse through it. however, it's tedious becaus ethey dont want to have to use the program, they would rather it a drag and drop sitation, maybe even using microsfot to some extent, like a webpage or application, no vs code anymore. how woould that be doen
