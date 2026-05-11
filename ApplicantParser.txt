@@ -1,0 +1,370 @@
+import pymupdf
+import pandas as pd
+import os
+import phonenumbers
+import numpy as np
+import cv2
+import openpyxl
+
+# Path to folder containing applicant reports - Change path as needed
+folder_path = r"C:\Users\IGREWAL1\OneDrive - The City of Calgary\Applicant Reports"
+# Path to Excel file containing the "Selection Matrix" - Change path as needed
+excel_file_path = r"C:\Users\IGREWAL1\OneDrive - The City of Calgary\Applicant Reports\SelectionMatrix.xlsx"
+
+#--------------------------------------------------Function Code-------------------------------------------------------------------------------------------------------------------------------------
+
+def extract_files(folder_path, paths_list): 
+    for file in os.listdir(folder_path):
+        if file.lower().endswith(".pdf"):
+            file_path = os.path.join(folder_path, file)
+            paths_list.append(file_path)
+
+def is_valid_phone_number(phone_number): 
+    try: 
+        parsed_number = phonenumbers.parse(phone_number, "CA")
+        return phonenumbers.is_valid_number(parsed_number)
+    except phonenumbers.phonenumberutil.NumberParseException:
+        return False
+
+question_headers = []
+def extract_applicant_data(df):
+    paths_list = []
+    extract_files(folder_path, paths_list)
+    all_applicants = []
+    got_questions = 0
+
+    for file_path in paths_list:
+        file = pymupdf.open(file_path)
+        current_data = {}
+        for page_num in range(file.page_count):
+            page = file[page_num]
+            words = page.get_text("words", sort=True)
+
+            for i, word in enumerate(words): 
+                text = word[4]
+
+                if text == "First" and i+2 < len(words) and words[i+1][4] == "Name" and words[i+2][4] != "Middle":
+                    first_name_words = []
+                    j = i + 2
+                    text = words[j][4]
+                    while text != "Middle" and j < len(words):
+                        first_name_words.append(text)
+                        j += 1
+                        text = words[j][4]
+                    current_data["First Name:"] = " ".join(first_name_words)
+                
+                elif text == "Last" and i+2 < len(words) and words[i+1][4] == "Name" and words[i+2][4] != "Name":
+                    last_name_words = []
+                    j = i + 2
+                    text = words[j][4]
+                    while text != "Name" and j < len(words):
+                        last_name_words.append(text)
+                        j += 1
+                        text = words[j][4]
+                    current_data["Last Name:"] = " ".join(last_name_words)
+                
+                elif text == "Suffix" and i+1 < len(words) and words[i+1][4] == "Address":
+                    address_words = []
+                    j = i + 2
+                    text = words[j][4]
+                    while text != "Preferred" and j < len(words): 
+                        address_words.append(text)
+                        j += 1
+                        text = words[j][4]
+                    current_data["Address:"] = " ".join(address_words)
+
+                elif text == "Business" and words[i+1][4] == "Cell" and page_num == 0 and i+2 < len(words) and (words[i+2][4] != "Yes" and words[i+2][4] != "No"):
+                    number_components = []
+                    n = i+2
+                    number = words[n][4]
+                    number_length = 0
+                    while n<len(words):
+                        number = words[n][4]
+                        if number == "Yes" or number == "No":
+                            break
+                        number_length += len(number)
+                        number_components.append(number)
+                        n += 1
+                        if number_length == 14 or number_length == 10:
+                            break
+                    potential_number = " ".join(number_components)
+                    if is_valid_phone_number(potential_number):
+                        current_data["Business Cell:"] = potential_number
+                    else: 
+                        current_data["Business Cell:"] = ""
+                    current_data["BC Preferred?"] = words[n][4]
+                
+                elif text == "Home" and page_num == 0 and i+1 < len(words) and (words[i+1][4] != "Yes" and words[i+1][4] != "No"):
+                    number_components = []
+                    n = i+1
+                    number = words[n][4]
+                    number_length = 0
+                    while n<len(words):
+                        number = words[n][4]
+                        if number == "Yes" or number == "No":
+                            break
+                        number_length += len(number)
+                        number_components.append(number)
+                        n += 1
+                        if number_length == 14 or number_length == 10:
+                            break
+                    potential_number = " ".join(number_components)
+                    if is_valid_phone_number(potential_number):
+                        current_data["Home Phone:"] = potential_number
+                    else: 
+                        current_data["Home Phone:"] = ""
+                
+                elif text == "Cellular" and page_num == 0 and i+1 < len(words) and (words[i+1][4] != "Yes" and words[i+1][4] != "No"):
+                    number_components = []
+                    n = i+1
+                    number = words[n][4]
+                    number_length = 0
+                    while n<len(words):
+                        number = words[n][4]
+                        if number == "Yes" or number == "No":
+                            break
+                        number_length += len(number)
+                        number_components.append(number)
+                        n += 1
+                        if number_length == 14 or number_length == 10:
+                            break
+                    potential_number = " ".join(number_components)
+                    if is_valid_phone_number(potential_number):
+                        current_data["Cellular Phone:"] = potential_number
+                    else: 
+                        current_data["Cellular Phone:"] = ""
+                
+                elif text == "Email" and i+1 < len(words) and words[i+1][4] == "Addresses" and i+11 < len(words):
+                    if words[i+7][4] == "Business": 
+                        if words[i+8][4] != "Yes" and words[i+8][4] != "No":
+                            current_data["Business Email:"] = words[i+8][4]
+                        if words[i+10][4] == "Personal" and words[i+11][4] != "Information" and words[i+11][4] != "Yes" and words[i+11][4] != "No":
+                            current_data["Personal Email:"] = words[i+11][4]
+                        if words[i+10][4] == "Other" and words[i+11][4] != "Yes" and words[i+11][4] != "No":
+                            current_data["Other Email:"] = words[i+11][4]
+                    elif words[i+7][4] == "Personal":
+                        if words[i+8][4] != "Yes" and words[i+8][4] != "No":
+                            current_data["Personal Email:"] = words[i+8][4]
+                        if words[i+10][4] == "Business" and words[i+11][4] != "Yes" and words[i+11][4] != "No":
+                            current_data["Business Email:"] = words[i+11][4]
+                        if words[i+10][4] == "Other" and words[i+11][4] != "Yes" and words[i+11][4] != "No":
+                            current_data["Other Email:"] = words[i+11][4]
+                    elif words[i+7][4] == "Other":
+                        if words[i+8][4] != "Yes" and words[i+8][4] != "No":
+                            current_data["Other Email:"] = words[i+8][4]                                    
+                
+                elif text == "former" and i+1 < len(words) and words[i+1][4] == "employee" and i+2 < len(words):
+                    current_data["Former Employee:"] = words[i+2][4]
+
+                elif text == "Skills" and i+1 < len(words) and words[i+1][4] == "Question:" and i+2 < len(words) and got_questions != 1:
+                    question_header = []
+                    qh = i+2
+                    temp = words[qh][4]
+                    while qh < len(words):
+                        temp = words[qh][4]
+                        if temp == "Answers":
+                            break
+                        question_header.append(temp)
+                        qh += 1
+                    question_headers.append(" ".join(question_header))
+
+        got_questions = 1
+
+        if current_data:  
+            all_applicants.append(current_data)
+            current_data = {}
+    
+    for applicant in all_applicants: 
+        df.loc[len(df)] = applicant 
+    
+    return df
+
+def export_data_to_csv(df, excel_file_path):
+    wb = openpyxl.load_workbook(excel_file_path)
+    ws = wb.active
+
+    df["Full Name:"] = df["First Name:"].str.strip() + " " + df["Last Name:"].str.strip()
+    df.set_index("Full Name:", inplace=True)
+
+    metadata_columns = [col for col in df.columns if col not in ["First Name:", "Last Name:", "Full Name:"]]
+
+    for j, column_name in enumerate(metadata_columns):
+        c_index = 7 + j
+        ws.cell(row=1,column=c_index,value=column_name)
+
+    for row in ws.iter_rows(min_row=2):
+        full_name = row[1].value
+        if full_name in df.index:
+            metadata = df.loc[full_name, metadata_columns]
+
+            for i, value in enumerate(metadata):
+                col_index = 7 + i
+                ws.cell(row=row[0].row, column=col_index, value=value)
+    
+    wb.save(excel_file_path)
+
+def group_words_by_line(words, tolerance):
+    lines = []
+    words_sorted = sorted(words, key=lambda item: item[0][1])
+
+    current_line = []
+    current_y = None
+    current_page = None
+
+    for word in words_sorted:
+        if current_y is None:
+            current_y = word[0][1]
+            current_line.append(word[0][4])
+            current_page = word[1]
+        elif abs(word[0][1] - current_y) <= tolerance and word[1] == current_page:
+            current_line.append(word[0][4])
+        else:
+            lines.append(((" ".join(current_line)), current_y))
+            current_line = []
+            current_line.append(word[0][4])
+            current_y = word[0][1]
+            current_page = word[1]
+    if current_line:
+        lines.append(((" ".join(current_line)), current_y))
+    return lines
+
+def extract_questionnaire_data (df):
+    paths_list = []
+    extract_files(folder_path, paths_list)
+    for index, file_path in enumerate(paths_list):
+        file = pymupdf.open(file_path)
+        answer_options = []
+        applicant_answers = []
+        applicant_answers_y = []
+        words_all = []
+        questionnaire_count = 0
+        for page_num in range(file.page_count):
+            page = file[page_num]
+            zoom = 1.6
+            mat = pymupdf.Matrix(zoom,zoom)
+            image = page.get_pixmap(matrix=mat)
+            image_path = "temp_image.png"
+            image.save(image_path)
+
+            # Load colored image from path
+            image = cv2.imread(image_path)
+            # Convert colored image to a grayscale image to simplify processing
+            gray_scale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+            # Thresholding -- Converts grayscale image to binary image
+            img_bin = cv2.threshold(gray_scale, 150, 255, cv2.THRESH_BINARY_INV)[1]
+            # cv2.imshow("Binary Image", img_bin)
+            # cv2.waitKey(0)
+
+            # Apply a small morphological closing to fill space inside for better detection -- Closing is to dilate and then erode (looks at nearest neighbors)
+            kernel = np.ones((3,3), np.uint8)
+            img_bin_morph_close = cv2.morphologyEx(img_bin, cv2.MORPH_CLOSE, kernel)
+            # cv2.imshow("Binary Image - Morphologically Closed", img_bin_morph_close)
+            # cv2.waitKey(0)
+
+            contours, _ = cv2.findContours(img_bin_morph_close, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            checkmarks_found = []
+            for contour in contours:
+                area = cv2.contourArea(contour)
+                if area < 68 or area > 76:                                         # area must be between 68 and 76 based on experiemental results -- DO NOT CHANGE
+                    continue
+
+                # Fit a bounding box and get aspect ratio
+                x, y, w, h = cv2.boundingRect(contour)
+                if w < 13 or h < 13:
+                    continue
+                elif h > 0: 
+                    aspect_ratio = w / h
+                else: 
+                    aspect_ratio = 0
+                
+                if 1.0 < aspect_ratio < 1.2:                                       # aspect ratio must be between 1 and 1.2 based on experimental results -- DO NOT CHANGE
+                    # Approximate contour to reduce points
+                    approx = cv2.approxPolyDP(contour, 0.02 * cv2.arcLength(contour, True), True)
+
+                    if len(approx) in [7,8]:                                       # check marks are usually 7 or 8 points based on experimental results -- DO NOT CHANGE
+                        checkmarks_found.append((x,y,w,h))
+                        cv2.rectangle(image, (x,y), (x + w, y + h), (0, 255, 0), 2)
+                    # print(f"Contour area: {area}, Approximated points: {len(approx)}")
+            checkmarks_found.sort(key=lambda item: item[1])
+            # print(checkmarks_found)
+            # cv2.imshow("Checkmarks Detected:", image)
+            # cv2.waitKey(0)
+            # cv2.destroyAllWindows()
+
+            # Count number of questions in questionnaire
+            words_page = page.get_text("words", sort=True)
+            for i, word in enumerate(words_page):
+                 words_all.append([word,page_num])
+                 if word[4] == "Skills" and i+1 < len(words_page) and words_page[i+1][4] == "Question:":
+                    questionnaire_count += 1
+            
+            # Finding corresponding checkmark answer
+            tolerance = 20
+            for checkmark in checkmarks_found: 
+                x, y, w, h = checkmark
+                if x > 700: 
+                    answer_line = []
+                    answer_line_y = 0
+                    for word in words_page: 
+                        if abs(((word[1] * zoom) - y)) < tolerance: 
+                            answer_line.append(word[4])
+                            answer_line_y = word[1]
+                    if answer_line: 
+                        applicant_answers.append(" ".join(answer_line))
+                        applicant_answers_y.append(answer_line_y)
+                        # print(applicant_answers)
+                        # print(applicant_answers_y)
+        
+        # Get all of the answer options for each question 
+        count = 0
+        for i, word in enumerate(words_all):
+            if word[0][4] == "Skills" and i+1 < len(words_all) and words_all[i+1][0][4] == "Question:": 
+                count += 1
+                j = i
+                question_words = []
+                while j < len(words_all) and j+1 < len(words_all): 
+                    if words_all[j][0][4] == "Selected" and words_all[j+1][0][4] == "Answer": 
+                        j = j + 2
+                        break
+                    else:
+                        j += 1
+
+                while j < len(words_all) and j+1 < len(words_all) and words_all[j][0][4] != "Skills" and words_all[j+1][0][4] != "Question:":
+                    if count == questionnaire_count and words_all[j][0][4] == "Application":
+                        break
+                    if words_all[j][0][0] < 600 and words_all[j][0][1] < 700: 
+                        question_words.append([words_all[j][0], words_all[j][1]])    
+                    j += 1
+                question_lines = group_words_by_line(question_words, 18)
+                # print(question_lines)
+                answer_options.append(question_lines)
+
+        # print(answer_options)
+
+        # Match applicant answers to the answer options of each question, adding answers to df
+        for i in range(questionnaire_count): 
+            column_index = 9 + i
+            ans = []
+            if column_index >= len(df.columns):
+                # df[f"Question {i+1}:"] = ""
+                df[f"{question_headers[i]}"] = ""
+            for j, applicant_answer in enumerate(applicant_answers): 
+                matched = False
+                for option_text, option_y in answer_options[i]:
+                    if applicant_answer == option_text and abs(applicant_answers_y[j] - option_y) <= 20:
+                        matched = True
+                        break
+                if matched:
+                    ans.append(applicant_answer)
+            # df.at[index, f"Question {i+1}:"] = " ".join(ans)
+            df.at[index, f"{question_headers[i]}"] = " ".join(ans)
+
+    return df
+
+#--------------------------------------------------Main Code-------------------------------------------------------------------------------------------------------------------------------------
+df = pd.DataFrame(columns=["First Name:", "Last Name:", "Address:", "Business Cell:", "BC Preferred?", "Cellular Phone:", "Home Phone:", "Business Email:", "Personal Email:", "Other Email:", "Former Employee:"])
+df = extract_applicant_data(df)                                                                                                                      
+df = extract_questionnaire_data(df)
+print(df)
+export_data_to_csv(df, excel_file_path)
