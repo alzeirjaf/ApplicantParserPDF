@@ -1,0 +1,73 @@
+     for page_num in range(file.page_count): 
+            page = file[page_num]
+            zoom = 1.6
+            mat = pymupdf.Matrix(zoom, zoom)
+            image = page.get_pixmap(matrix=mat)
+            image_path = "temp_image.png"
+            image.save(image_path)
+
+            # Load colored image from path
+            image = cv2.imread(image_path)
+            # Convert colored image to a grayscale image to simplify processing
+            gray_scale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+            # Thresholding -- Coverts grayscale image to binary image -- All pixel intensities above 150 become 0 (black) and below 150 become 255 (white)
+            img_bin = cv2.threshold(gray_scale, 150, 255, cv2.THRESH_BINARY_INV)[1]
+            cv2.imshow("Binary Image", img_bin)
+            cv2.waitKey(0)
+
+            # Apply a small morphological closing to fill space inside checkboxes for better detection -- Closing is to dilate and then erode (looks at nearest neighbors)
+            kernel = np.ones((3,3), np.uint8)
+            img_bin_morph_close = cv2.morphologyEx(img_bin, cv2.MORPH_CLOSE, kernel)
+            cv2.imshow("Binary Image - Morphologically Closed", img_bin_morph_close)
+            cv2.waitKey(0)
+
+            # Find all perpendicularly connected components 
+            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(img_bin_morph_close, connectivity=8)
+            # print("Total components found:", num_labels)
+
+            # Filter components based on area and aspect ratio to identify checkboxes
+            min_area = 110 
+            max_area = 120 
+            checkboxes_found = []
+
+            for i in range(0, num_labels):
+                x, y, w, h, area = stats[i]
+
+                if h > 0: 
+                    aspect_ratio = w / h
+                else: 
+                    aspect_ratio = 0
+
+                if min_area < area < max_area and 0.8 < aspect_ratio < 1.2:
+                    checkboxes_found.append((x, y, w, h))
+                    cv2.rectangle(image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+            cv2.imshow("Checkbox Candidates", image)
+            # print(checkboxes_found)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+            # Finding corresponding answer
+            words = page.get_text("words", sort=True)
+            tolerance = 6
+            for checkbox in checkboxes_found:
+                x, y, w, h = checkbox
+                if x > 700: 
+                    for i, word in enumerate(words):
+                        if abs((word[1]*zoom) - y) > tolerance or word in answer_words: 
+                            continue
+                        if word[4] == "Skills" and i+1 < len(words) and words[i+1][4] == "Question:":
+                            continue
+                        j = i
+                        while j < len(words):
+                            current_word = words[j]
+                            if abs((current_word[1]*zoom) - y) > tolerance:
+                                break
+                            if current_word[4] == "☒" or current_word[4] == "☐" or current_word[4] == " ":
+                                break
+                            answer_words.append(current_word)
+                            j += 1
+
+
+    return df
